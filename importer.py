@@ -44,22 +44,28 @@ class Node:
         self.id = id
         self.concept_def = concept_def
         self.properties = {}
+        self.references = {}
+        self.children = {}
 
     def set_property(self, property_def, value):
         self.properties[property_def.id] = (property_def, value)
-        
+
+    def set_reference(self, reference_def, value_id, resolve):
+        self.properties[reference_def.id] = (reference_def, value_id, resolve)
+
+    def add_child(self, child_def, value):
+        if child_def.id not in self.children:
+            self.children[child_def.id] = (child_def, [])
+        self.children[child_def.id][1].append(value)
+
 
 class ImportingTable:
 
     def __init__(self):
         self.concepts = {}
         self.properties = {}
-
-    def find_property(self, index):
-        if index in self.properties:
-            return self.properties[index]
-        else:
-            raise Exception("Property not found %s" % index)
+        self.references = {}
+        self.children = {}
 
     def load_language(self, lang):
         for c_id in lang.concepts:
@@ -68,12 +74,36 @@ class ImportingTable:
             for p_id in c.properties:
                 p = c.properties[p_id]
                 self.properties[p.index] = p
+            for r_id in c.references:
+                r = c.references[r_id]
+                self.references[r.index] = r
+            for ch_id in c.children:
+                ch = c.children[ch_id]
+                self.children[ch.index] = ch
 
     def find_concept(self, index):
         if index in self.concepts:
             return self.concepts[index]
         else:
-            raise Exception("Not found %s" % index)
+            raise Exception("Concept not found %s" % index)
+
+    def find_property(self, index):
+        if index in self.properties:
+            return self.properties[index]
+        else:
+            raise Exception("Property not found %s" % index)
+
+    def find_child(self, index):
+        if index in self.children:
+            return self.children[index]
+        else:
+            raise Exception("Child relationship ot found %s" % index)
+
+    def find_reference(self, index):
+        if index in self.references:
+            return self.references[index]
+        else:
+            raise Exception("Reference not found %s" % index)
 
 
 class ImportedLanguage:
@@ -95,15 +125,17 @@ class ImportedConcept:
         self.flags = flags
         self.index = index
         self.properties = {}
+        self.children = {}
+        self.references = {}
 
     def register_property(self, property):
         self.properties[property.id] = property
 
     def register_child(self, child):
-        pass
+        self.children[child.id] = child
 
-    def register_reference(self, child):
-        pass
+    def register_reference(self, reference):
+        self.references[reference.id] = reference
 
 
 class ImportedConceptProperty:
@@ -161,11 +193,18 @@ class Environment:
                 property_def = imp_table.find_property(property_index)
                 node.set_property(property_def, cn.attrib['value'])
             elif cn.tag == 'ref':
-                pass
+                ref_index = cn.attrib['role']
+                ref_def = imp_table.find_reference(ref_index)
+                # instead of having the attribute 'node' a reference could have the attribute 'to'
+                # in that case we need to add a reference to a node in another model
+                node.set_reference(ref_def, cn.attrib['node'], cn.attrib['resolve'])
             elif cn.tag == 'node':
-                pass
+                child_index = cn.attrib['role']
+                child_def = imp_table.find_child(child_index)
+                node.add_child(child_def, self.__load_node(cn, imp_table))
             else:
                 raise Exception(cn.tag)
+        return node
 
     def __load_imported_concept(self, xml_node):
         c = ImportedConcept(xml_node.attrib['id'], xml_node.attrib['name'], xml_node.attrib['flags'], xml_node.attrib['index'])
