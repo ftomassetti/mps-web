@@ -59,13 +59,21 @@ class Node:
         self.children[child_def.id][1].append(value)
 
 
+class ModelReference:
+
+    def __init__(self, ref, implicit):
+        self.ref = ref
+        self.implicit = implicit
+
+
 class ImportingTable:
 
     def __init__(self):
+        self.models = {}
         self.concepts = {}
         self.properties = {}
-        self.references = {}
         self.children = {}
+        self.references = {}
 
     def load_language(self, lang):
         for c_id in lang.concepts:
@@ -80,6 +88,15 @@ class ImportingTable:
             for ch_id in c.children:
                 ch = c.children[ch_id]
                 self.children[ch.index] = ch
+
+    def register_model(self, index, ref, implicit):
+        self.models[index] = ModelReference(ref, implicit)
+
+    def find_model(self, index):
+        if index in self.models:
+            return self.models[index]
+        else:
+            raise Exception("Model not found %s" % index)
 
     def find_concept(self, index):
         if index in self.concepts:
@@ -197,7 +214,14 @@ class Environment:
                 ref_def = imp_table.find_reference(ref_index)
                 # instead of having the attribute 'node' a reference could have the attribute 'to'
                 # in that case we need to add a reference to a node in another model
-                node.set_reference(ref_def, cn.attrib['node'], cn.attrib['resolve'])
+                if 'node' in cn.attrib:
+                    node.set_reference(ref_def, cn.attrib['node'], cn.attrib['resolve'])
+                elif 'to' in cn.attrib:
+                    to = cn.attrib['to']
+                    model_index, node_index = to.split(":", 1)
+                    model_def = imp_table.find_model(model_index)
+                else:
+                    raise Exception()
             elif cn.tag == 'node':
                 child_index = cn.attrib['role']
                 child_def = imp_table.find_child(child_index)
@@ -233,19 +257,25 @@ class Environment:
         root = tree.getroot()
         model = Model(root.attrib['ref'])
         self.__log("Record model %s" % model.uuid())
-        languages_node = root.find('languages')
-        for language_node in languages_node:
+
+        imp_table = ImportingTable()
+
+        for language_node in root.find('languages'):
             if language_node.tag == 'use':
                 model.add_language_usage(self.__load_language_usage(language_node))
             elif language_node.tag == 'devkit':
                 model.add_devkit_usage((self.load_devkit_usage(language_node)))
             else:
                 raise Exception("Unknown tag %s" % language_node.tag)
-
         imported_languages = [self.__load_imported_language(n) for n in root.find('registry')]
-        imp_table = ImportingTable()
         for lang in imported_languages:
             imp_table.load_language(lang)
+
+        for import_node in root.find('imports'):
+            implicit = False
+            if 'implicit' in import_node.attrib:
+                implicit = import_node.attrib['implicit']
+            imp_table.register_model(import_node.attrib['index'], import_node.attrib['ref'], implicit)
 
         for child in root:
             if child.tag == 'node':
